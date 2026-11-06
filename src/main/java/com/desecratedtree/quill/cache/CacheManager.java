@@ -2,8 +2,6 @@ package com.desecratedtree.quill.cache;
 
 import com.displee.cache.CacheLibrary;
 import com.displee.cache.index.archive.Archive;
-import javax.swing.*;
-import java.awt.*;
 import java.util.Objects;
 
 public final class CacheManager {
@@ -17,19 +15,6 @@ public final class CacheManager {
 
     public static void init(String path) {
         library = Objects.requireNonNull(CacheLibrary.create(path), "Unable to open cache: " + path);
-    }
-
-    public static void initCache(Component parent) {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setDialogTitle("Select Cache Folder");
-        if (chooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
-            String path = chooser.getSelectedFile().getAbsolutePath();
-            CacheManager.init(path);
-        } else {
-            JOptionPane.showMessageDialog(parent, "Cache is required.");
-            System.exit(0);
-        }
     }
 
     public static byte[] getItemData(int id) {

@@ -18,13 +18,14 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class Item6570TextureProbeTest {
 
     @Test
     void fireCapeFace20UsesVoidTextureSources() {
         Path cache = Paths.get("data", "cache");
-        assertTrue(Files.isDirectory(cache), "634 cache fixture is unavailable");
+        assumeTrue(Files.isRegularFile(cache.resolve("main_file_cache.dat2")), "634 cache fixture is unavailable");
         CacheManager.init(cache.toString());
 
         ItemDefinitions item = ItemDefinitions.getItemDefinitions(6570);

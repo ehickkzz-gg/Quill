@@ -23,10 +23,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 public class MainFrame extends JFrame {
 
-    private static final Dimension DEFAULT_SIZE = new Dimension(850, 525);
+    private static final Dimension DEFAULT_SIZE = new Dimension(1040, 620);
+    private final List<AbstractButton> cacheActions = new ArrayList<>();
+    private final JLabel cacheStatus = new JLabel("No cache open");
+    private final JButton openCacheButton = new JButton("Open cache…");
 
     private static final Path CHANGELOG_FILE = Paths.get("changelog.md");
 
@@ -38,6 +42,7 @@ public class MainFrame extends JFrame {
         setTitle("Quill Cache Suite");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(DEFAULT_SIZE);
+        setMinimumSize(new Dimension(760, 510));
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
         setContentPane(buildDashboard());
@@ -52,19 +57,26 @@ public class MainFrame extends JFrame {
         hero.setOpaque(false);
         JLabel title = new JLabel("Quill Cache Suite");
         title.setFont(title.getFont().deriveFont(Font.BOLD, 30f));
-        JLabel subtitle = new JLabel("All-in-one cache editor.");
+        JLabel subtitle = new JLabel("Browse, edit and export RuneScape cache assets");
         subtitle.setFont(subtitle.getFont().deriveFont(Font.PLAIN, 15f));
         hero.add(title, BorderLayout.NORTH);
         JPanel heroBody = new JPanel(new BorderLayout(0, 6));
         heroBody.setOpaque(false);
         heroBody.add(subtitle, BorderLayout.NORTH);
+        JPanel workspace = new JPanel(new BorderLayout(16, 0));
+        workspace.setBorder(new EmptyBorder(10, 0, 0, 0));
+        cacheStatus.setText("No cache open  •  Revision " + RuntimeRevision.getRevision());
+        openCacheButton.addActionListener(event -> openCache());
+        workspace.add(cacheStatus, BorderLayout.CENTER);
+        workspace.add(openCacheButton, BorderLayout.EAST);
+        heroBody.add(workspace, BorderLayout.SOUTH);
         hero.add(heroBody, BorderLayout.CENTER);
         root.add(hero, BorderLayout.NORTH);
         JPanel content = new JPanel(new GridLayout(1, 3, 20, 0));
         content.setOpaque(false);
         JButton cs2Button = createLaunchButton("ClientScript Editor", this::openClientScriptEditor);
-        if (RuntimeRevision.getRevision() != 634) {
-            cs2Button.setEnabled(false);
+        if (!supportsClientScripts()) {
+            cacheActions.remove(cs2Button);
             cs2Button.setToolTipText("CS2 Editor requires cache revision 634");
         }
         content.add(createSectionPane("Editors",
@@ -143,10 +155,11 @@ public class MainFrame extends JFrame {
     private JButton createLaunchButton(String label, Runnable action) {
         JButton button = new JButton(label);
         button.setHorizontalAlignment(SwingConstants.LEFT);
-        button.setFocusPainted(false);
         button.setMargin(new Insets(4, 8, 4, 8));
         button.setFont(button.getFont().deriveFont(Font.PLAIN, 12f));
         button.addActionListener(e -> action.run());
+        button.setEnabled(false);
+        cacheActions.add(button);
         return button;
     }
 
@@ -241,14 +254,24 @@ public class MainFrame extends JFrame {
 
     private JMenuBar createMenuBar() {
         JMenuBar bar = new JMenuBar();
+        JMenu file = new JMenu("File");
+        JMenuItem open = new JMenuItem("Open cache…");
+        open.setAccelerator(KeyStroke.getKeyStroke("control O"));
+        open.addActionListener(event -> {
+            if (openCacheButton.isEnabled()) {
+                openCache();
+            }
+        });
+        file.add(open);
+        bar.add(file);
         JMenu tools = new JMenu("Tools");
         tools.add(createToolItem("Item Editor", this::openItemEditor));
         tools.add(createToolItem("NPC Editor", this::openNpcEditor));
         tools.add(createToolItem("Object Editor", this::openObjectEditor));
         tools.add(createToolItem("Model Editor", this::openModelEditor));
         JMenuItem cs2MenuItem = createToolItem("ClientScript Editor", this::openClientScriptEditor);
-        if (RuntimeRevision.getRevision() != 634) {
-            cs2MenuItem.setEnabled(false);
+        if (!supportsClientScripts()) {
+            cacheActions.remove(cs2MenuItem);
             cs2MenuItem.setToolTipText("CS2 Editor requires cache revision 634");
         }
         tools.add(cs2MenuItem);
@@ -269,7 +292,57 @@ public class MainFrame extends JFrame {
     private JMenuItem createToolItem(String label, Runnable action) {
         JMenuItem item = new JMenuItem(label);
         item.addActionListener(e -> action.run());
+        item.setEnabled(false);
+        cacheActions.add(item);
         return item;
+    }
+
+    private boolean supportsClientScripts() {
+        return RuntimeRevision.getRevision() == 634 && !RuntimeRevision.isOsrsMode();
+    }
+
+    private void openCache() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Open RuneScape cache folder");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path folder = chooser.getSelectedFile().toPath().toAbsolutePath();
+        if (!Files.isRegularFile(folder.resolve("main_file_cache.dat2"))) {
+            JOptionPane.showMessageDialog(this, "Choose the folder containing main_file_cache.dat2.",
+                    "Open cache", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        String previousStatus = cacheStatus.getText();
+        cacheStatus.setText("Opening " + folder.getFileName() + "…");
+        openCacheButton.setEnabled(false);
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                CacheManager.init(folder.toString());
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    cacheStatus.setText(folder.getFileName() + "  •  Revision " + RuntimeRevision.getRevision());
+                    cacheStatus.setToolTipText(folder.toString());
+                    openCacheButton.setText("Cache open");
+                    openCacheButton.setToolTipText("Restart Quill to open a different cache.");
+                    cacheActions.forEach(action -> action.setEnabled(true));
+                } catch (InterruptedException | ExecutionException error) {
+                    cacheStatus.setText(previousStatus);
+                    openCacheButton.setEnabled(true);
+                    Throwable cause = error instanceof ExecutionException ? error.getCause() : error;
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                            "Could not open " + folder + "\n" + cause,
+                            "Open cache", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private void openItemEditor() {
@@ -293,7 +366,22 @@ public class MainFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "No models found in cache.", "Model Editor", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        int modelId = modelIds[0];
+        String input = JOptionPane.showInputDialog(this, "Model ID", Integer.toString(modelIds[0]));
+        if (input == null) {
+            return;
+        }
+        int modelId;
+        try {
+            modelId = Integer.parseInt(input.trim());
+        } catch (NumberFormatException error) {
+            JOptionPane.showMessageDialog(this, "Enter a numeric model ID.", "Model Editor", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (java.util.Arrays.stream(modelIds).noneMatch(id -> id == modelId)) {
+            JOptionPane.showMessageDialog(this, "Model " + modelId + " is missing from this cache.",
+                    "Model Editor", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
         ModelEditorDialog.showEditor(this, modelId, "Model Editor | ID: " + modelId, null);
     }
 
@@ -391,7 +479,6 @@ public class MainFrame extends JFrame {
     }
 
     public static void main(String[] args) {
-        CacheManager.initCache(null);
-        SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
+        com.desecratedtree.quill.Main.main(args);
     }
 }

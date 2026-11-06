@@ -43,6 +43,5 @@ bin/
 /.gradle-user-home
 /.idea
 /.idea
-/gradle
 /.kotlin
 /data/cache
